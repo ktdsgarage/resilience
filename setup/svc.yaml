@@ -3,6 +3,7 @@ kind: Service
 metadata:
   name: async-svc
   namespace: crew120-resilience-ns
+
 spec:
   allocateLoadBalancerNodePorts: true
   externalTrafficPolicy: Cluster
