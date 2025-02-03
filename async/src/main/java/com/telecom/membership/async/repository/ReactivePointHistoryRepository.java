@@ -9,14 +9,12 @@ import reactor.core.publisher.Mono;
 import java.time.LocalDateTime;
 
 public interface ReactivePointHistoryRepository
-    extends ReactiveMongoRepository<PointHistory, String> {
-    
-    Flux<PointHistory> findByStatusAndRetryCountLessThan(
-        String status, int retryCount);
-        
-    Mono<PointHistory> findByMemberIdAndTransactionTime(
-        String memberId, LocalDateTime transactionTime);
-        
-    @Query("{'status': 'PENDING', 'retryCount': {$lt: ?0}}")
-    Flux<PointHistory> findPendingRetries(int maxRetries);
+        extends ReactiveMongoRepository<PointHistory, String> {
+
+    @Query("{'status': 'FAILED', 'retryCount': {$lt: ?0}}")
+    Flux<PointHistory> findFailedRetries(int maxRetries);
+
+    // 필요시 상태를 파라미터로 받을 수 있음
+    @Query("{'status': ?0, 'retryCount': {$lt: ?1}}")
+    Flux<PointHistory> findRetriesByStatus(String status, int maxRetries);
 }

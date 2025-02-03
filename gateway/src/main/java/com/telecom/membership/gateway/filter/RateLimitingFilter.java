@@ -13,7 +13,9 @@ import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
-import static org.springframework.http.HttpStatus.TOO_MANY_REQUESTS;
+import java.util.Map;
+
+import static org.springframework.http.HttpStatus.*;
 
 @Slf4j
 @Component
@@ -22,28 +24,53 @@ public class RateLimitingFilter implements WebFilter {
 
     private final RateLimiterRegistry rateLimiterRegistry;
 
+    private static final Map<String, String> PARTNER_TYPE_MAPPING = Map.of(
+            "MART", "mart",
+            "CONVENIENCE", "convenience",
+            "ONLINE", "online"
+    );
+
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
-        // 파트너 타입에 따라 적절한 rate limiter 선택
-        String partnerType = exchange.getRequest().getHeaders()
+        String rawPartnerType = exchange.getRequest().getHeaders()
                 .getFirst("X-Partner-Type");
 
         // 파트너 타입 헤더가 없으면 기본 처리
-        if (partnerType == null) {
+        if (rawPartnerType == null) {
+            log.debug("No partner type header found, skipping rate limiting");
             return chain.filter(exchange);
         }
 
+        String normalizedPartnerType = PARTNER_TYPE_MAPPING.get(rawPartnerType.toUpperCase());
+        if (normalizedPartnerType == null) {
+            log.warn("Invalid partner type received: {}", rawPartnerType);
+            exchange.getResponse().setStatusCode(BAD_REQUEST);
+            return exchange.getResponse().setComplete();
+        }
+
         // 파트너 타입에 해당하는 rate limiter 가져오기
-        RateLimiter limiter = rateLimiterRegistry.rateLimiter(partnerType.toLowerCase());
+        RateLimiter limiter;
+        try {
+            limiter = rateLimiterRegistry.rateLimiter(normalizedPartnerType);
+        } catch (Exception e) {
+            log.error("Failed to get rate limiter for partner type: {}", normalizedPartnerType, e);
+            exchange.getResponse().setStatusCode(INTERNAL_SERVER_ERROR);
+            return exchange.getResponse().setComplete();
+        }
 
         // rate limiter를 적용하여 요청 처리
         return Mono.just(exchange)
                 .transformDeferred(RateLimiterOperator.of(limiter))
                 .flatMap(chain::filter)
                 .onErrorResume(RequestNotPermitted.class, e -> {
-                    log.warn("Rate limit exceeded for partner type: {}", partnerType);
-                    // 요청 거부 시 429 Too Many Requests 응답
+                    log.warn("Rate limit exceeded for partner type: {}", normalizedPartnerType);
+
                     exchange.getResponse().setStatusCode(TOO_MANY_REQUESTS);
+                    return exchange.getResponse().setComplete();
+                })
+                .onErrorResume(Exception.class, e -> {
+                    log.error("Unexpected error during rate limiting", e);
+                    exchange.getResponse().setStatusCode(INTERNAL_SERVER_ERROR);
                     return exchange.getResponse().setComplete();
                 });
     }

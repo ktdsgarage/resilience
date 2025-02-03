@@ -7,9 +7,9 @@ export let options = {
     scenarios: {
         circuit_breaker_test: {
             executor: 'constant-arrival-rate',
-            rate: 50,             // 초당 10개 요청
+            rate: 200,             // 초당 요청수
             timeUnit: '1s',
-            duration: '300s',
+            duration: '120s',
             preAllocatedVUs: 100,
             maxVUs: 1000,
         }

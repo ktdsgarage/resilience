@@ -3,37 +3,9 @@ spring:
     name: async-service
   data:
     mongodb:
-      uri: mongodb://${MONGODB_USER:mongodb}:${MONGODB_PASSWORD:mongodb}@${MONGODB_HOST:localhost}:${MONGODB_PORT:27017}/${MONGODB_DB:telecomdb}?authSource=admin
-
+      uri: mongodb://${MONGODB_USER:mongodb}:${MONGODB_PASSWORD:mongodb}@${MONGODB_HOST:localhost}:${MONGODB_PORT:27017}/${MONGODB_DATABASE:telecomdb}?authSource=admin
 server:
-  port: 8082
-
-azure:
-  eventgrid:
-    endpoint: ${EVENTGRID_ENDPOINT}
-    key: ${EVENTGRID_KEY}
-    dlq-topic: ${EVENTGRID_DLQ_TOPIC}
-
-resilience4j:
-  circuitbreaker:
-    configs:
-      default:
-        slidingWindowSize: ${CB_SLIDING_WINDOW_SIZE:10}
-        failureRateThreshold: ${CB_FAILURE_RATE_THRESHOLD:50}
-        waitDurationInOpenState: ${CB_WAIT_DURATION_IN_OPEN:60000}
-        permittedNumberOfCallsInHalfOpenState: ${CB_PERMITTED_CALLS_IN_HALF_OPEN:3}
-  retry:
-    configs:
-      default:
-        maxAttempts: ${RETRY_COUNT:3}
-        waitDuration: ${RETRY_FIRST_BACKOFF:5000}
-        enableExponentialBackoff: true
-        exponentialBackoffMultiplier: ${RETRY_FACTOR:2}
-  quartz:
-    job-store-type: memory
-    properties:
-      org.quartz.threadPool.threadCount: 5
-
+  port: ${SERVER_PORT:8080}
 point:
   retry:
     interval: ${RETRY_INTERVAL:30000}  # 30초마다 재시도
@@ -41,7 +13,7 @@ point:
 
 services:
   point:
-    url: ${POINT_SERVICE_URL:http://point-svc}
+    url: ${POINT_SERVICE_URL:http://point}
 
 springdoc:
   swagger-ui:

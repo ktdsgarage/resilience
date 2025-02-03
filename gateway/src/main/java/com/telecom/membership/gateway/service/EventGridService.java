@@ -4,8 +4,8 @@ package com.telecom.membership.gateway.service;
 import com.azure.core.util.BinaryData;
 import com.azure.messaging.eventgrid.EventGridEvent;
 import com.azure.messaging.eventgrid.EventGridPublisherClient;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.telecom.membership.common.event.EventMessage;
 import com.telecom.membership.common.exception.PointException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,30 +19,27 @@ public class EventGridService {
     private final EventGridPublisherClient client;
     private final ObjectMapper objectMapper;
 
-    public <T> Mono<Void> publishEvent(EventMessage<T> message) {
-        return Mono.fromRunnable(() -> {
+    public Mono<Void> publishEvent(String jsonEventString) {
+        return Mono.defer(() -> {  // defer를 사용하여 실행 시점 제어
             try {
-                EventGridEvent event = createEvent(message);
-                client.sendEvent(event);
-                log.debug("Published event: {}", message);
+                JsonNode event = objectMapper.readTree(jsonEventString);
+                String eventType = event.get("eventType").asText();
+
+                EventGridEvent gridEvent = new EventGridEvent(
+                        event.get("subject").asText(),
+                        eventType,
+                        BinaryData.fromObject(event.get("data")),
+                        "1.0"
+                );
+
+                return Mono.fromCallable(() -> {  // fromCallable을 사용하여 동기 호출 래핑
+                    client.sendEvent(gridEvent);
+                    return null;
+                });
+
             } catch (Exception e) {
-                log.error("Failed to publish event: {}", e.getMessage(), e);
-                throw new PointException.EventPublishException(e);
+                return Mono.error(new PointException.EventPublishException(e));
             }
         });
-    }
-
-    private <T> EventGridEvent createEvent(EventMessage<T> message) {
-        try {
-            String jsonData = objectMapper.writeValueAsString(message.getData());
-            return new EventGridEvent(
-                    message.getSubject(),
-                    message.getEventType(),
-                    BinaryData.fromString(jsonData),
-                    "1.0"
-            );
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to serialize event data", e);
-        }
     }
 }

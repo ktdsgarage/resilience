@@ -1,5 +1,7 @@
 #!/bin/bash
 
+SHARED_PREFIX="dg0100"  #실습 시 tiu-dgga로 변경 
+
 # ===========================================
 # 신뢰성 패턴 실습환경 정리 스크립트
 # ===========================================
@@ -8,7 +10,7 @@ print_usage() {
     cat << EOF
 사용법: $0 <userid>
 설명: 신뢰성 패턴 실습 리소스를 정리합니다.
-예제: $0 gappa
+예제: $0 dg0100
 EOF
 }
 
@@ -30,9 +32,8 @@ fi
 # 환경 변수 설정
 NAME="${1}-resilience"
 NAMESPACE="${NAME}-ns"
-RESOURCE_GROUP="tiu-dgga-rg"
+RESOURCE_GROUP="${SHARED_PREFIX}-rg"
 GATEWAY_TOPIC="$NAME-gateway-topic"
-ASYNC_TOPIC="$NAME-async-topic"
 
 # 리소스 삭제 전 확인
 confirm() {
@@ -75,22 +76,6 @@ cleanup_event_grid() {
         log "Gateway Event Grid Topic이 존재하지 않습니다"
     fi
 
-    # Async Topic 존재 여부 확인 및 삭제
-    local async_topic_exists=$(az eventgrid topic show \
-        --name $ASYNC_TOPIC \
-        --resource-group $RESOURCE_GROUP \
-        --query id -o tsv 2>/dev/null)
-
-    if [ ! -z "$async_topic_exists" ]; then
-        # Topic 삭제
-        az eventgrid topic delete \
-            --name $ASYNC_TOPIC \
-            --resource-group $RESOURCE_GROUP
-
-        log "Async Event Grid Topic 삭제 완료"
-    else
-        log "Async Event Grid Topic이 존재하지 않습니다"
-    fi
 }
 
 cleanup_storage() {

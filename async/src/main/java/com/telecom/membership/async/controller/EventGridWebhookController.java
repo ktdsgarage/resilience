@@ -17,8 +17,6 @@ import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.Map;
 
 @Slf4j
 @RestController
@@ -57,38 +55,13 @@ public class EventGridWebhookController {
 
                 log.info("Processing {} event. Data: {}", eventType, data);
 
-                // 이벤트 타입별 로깅
-                switch (eventType) {
-                    case "CircuitBreakerOpened":
-                        log.warn("Circuit Breaker opened for service: {}, path: {}",
-                                data.get("service").asText(),
-                                data.get("path").asText());
-                        break;
-                    case "RetryExhausted":
-                        log.warn("Retry exhausted for request. Path: {}", data.get("path").asText());
-                        break;
-                    case "ProcessingFailed":
-                        log.warn("Processing failed. Error: {}", data.get("error").asText());
-                        break;
-                    default:
-                        log.warn("Unknown event type received: {}", eventType);
-                }
-
                 // point 서비스 호출을 위한 요청 생성
-                PointRequest pointRequest;
-                if (data.has("originalRequest")) {
-                    // originalRequest가 있는 경우 (retry, processing failed)
-                    pointRequest = objectMapper.treeToValue(data.get("originalRequest"), PointRequest.class);
-                } else {
-                    // originalRequest가 없는 경우 (circuit breaker)
-                    Map<String, String> pathParams = extractPathParams(data.get("path").asText());
-                    pointRequest = PointRequest.builder()
-                            .memberId(pathParams.getOrDefault("memberId", "unknown"))
-                            .partnerId(pathParams.getOrDefault("partnerId", "unknown"))
-                            .partnerType(pathParams.getOrDefault("partnerType", "UNKNOWN"))
-                            .amount(new BigDecimal(pathParams.getOrDefault("amount", "0")))
-                            .build();
-                }
+                PointRequest pointRequest = PointRequest.builder()
+                        .memberId(data.get("memberId").asText())
+                        .partnerId(data.get("partnerId").asText())
+                        .partnerType(data.get("partnerType").asText())
+                        .amount(new BigDecimal(data.get("amount").asText()))
+                        .build();
 
                 // point 적립 처리
                 return historyManager.processPointAccumulation(pointRequest)
@@ -105,27 +78,6 @@ public class EventGridWebhookController {
                         .body(ApiResponse.error("이벤트 처리 중 오류가 발생했습니다: " + e.getMessage())));
             }
         });
-    }
-
-    /**
-     * URL 경로에서 파라미터 추출
-     */
-    private Map<String, String> extractPathParams(String path) {
-        Map<String, String> params = new HashMap<>();
-        // URL path를 파싱하여 필요한 파라미터 추출
-        // 예: /api/points/accumulate/{memberId}/{partnerId} 형식 가정
-        try {
-            String[] parts = path.split("/");
-            for (String part : parts) {
-                if (part.contains("=")) {
-                    String[] keyValue = part.split("=");
-                    params.put(keyValue[0], keyValue[1]);
-                }
-            }
-        } catch (Exception e) {
-            log.warn("Failed to extract path parameters from: {}", path);
-        }
-        return params;
     }
 
     @GetMapping("/health")

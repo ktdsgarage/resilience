@@ -55,8 +55,10 @@ public class PointController {
     }
 
     @GetMapping("/health")
-    @Operation(summary = "헬스 체크", description = "서비스의 상태를 확인합니다.")
-    public ResponseEntity<ApiResponse<String>> healthCheck() {
-        return ResponseEntity.ok(ApiResponse.success("Healthy - " + LocalDateTime.now()));
+    @Operation(summary = "서비스 상태 체크", description = "서비스의 상태와 가용성을 확인합니다.")
+    public Mono<ResponseEntity<ApiResponse<String>>> healthCheck() {
+        return Mono.just(ResponseEntity.ok(ApiResponse.success("Service is healthy - " + LocalDateTime.now())))
+                .doOnSuccess(response -> log.info("Health check successful"))
+                .doOnError(error -> log.error("Error during health check", error));
     }
 }

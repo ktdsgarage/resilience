@@ -1,4 +1,4 @@
-rootProject.name = 'membership'
+rootProject.name = 'resilience'
 include 'common'
 include 'gateway'
 include 'point'

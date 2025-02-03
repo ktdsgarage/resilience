@@ -15,7 +15,7 @@ spring:
       schema-locations: classpath:schema.sql
 
 server:
-  port: 8081
+  port: ${SERVER_PORT:8080}
 
 azure:
   eventgrid:

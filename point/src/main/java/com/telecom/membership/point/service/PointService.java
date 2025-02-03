@@ -56,7 +56,7 @@ public class PointService {
                         .amount(request.getAmount())
                         .points(pointCalculator.calculate(request))
                         .transactionTime(LocalDateTime.now())
-                        .status(TransactionStatus.PENDING)
+                        .status(TransactionStatus.COMPLETED)
                         .build()
         );
     }

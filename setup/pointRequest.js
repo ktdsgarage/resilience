@@ -2,7 +2,7 @@
 
 // Gateway 호스트 설정
 export function getGatewayHost() {
-   return "4.230.146.255";
+   return "20.249.64.81";
 }
 
 // 랜덤한 파트너 타입 반환 함수

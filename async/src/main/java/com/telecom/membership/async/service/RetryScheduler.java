@@ -14,6 +14,7 @@ import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -31,6 +32,9 @@ public class RetryScheduler {
     private final CircuitBreakerRegistry circuitBreakerRegistry;
     private final RetryRegistry retryRegistry;
 
+    @Value("${point.retry.max-count:3}")
+    private int retryMaxCount;
+
     @Scheduled(fixedDelayString = "${point.retry.interval:30000}")
     public void retryFailedRequests() {
         log.info("Starting retry of pending point requests");
@@ -38,21 +42,35 @@ public class RetryScheduler {
         CircuitBreaker circuitBreaker = circuitBreakerRegistry.circuitBreaker("async-processor");
         Retry retry = retryRegistry.retry("async-retry");
 
-        historyRepository.findPendingRetries(3)
+        historyRepository.findFailedRetries(retryMaxCount)
                 .flatMap(history -> processRetry(history, circuitBreaker, retry))
                 .subscribe(
-                        success -> log.debug("Retry processed successfully: {}", success.getId()),
+                        success -> log.debug("Retry processed successfully: {}", success.getTransactionId()),
                         error -> log.error("Error during retry processing", error)
                 );
     }
 
-    private Mono<PointHistory> processRetry(PointHistory history, CircuitBreaker circuitBreaker, Retry retry) {
+    private Mono<PointResponse> processRetry(PointHistory history, CircuitBreaker circuitBreaker, Retry retry) {
         return Mono.just(convertToPointRequest(history))
                 .transformDeferred(CircuitBreakerOperator.of(circuitBreaker))
                 .transformDeferred(RetryOperator.of(retry))
                 .flatMap(historyManager::processPointAccumulation)
-                .flatMap(response -> updateHistory(history, response))
-                .onErrorResume(error -> handleRetryError(history, error));
+                .onErrorResume(error -> {
+                    log.error("Retry failed for history id={}", history.getId(), error);
+
+                    // 에러 처리를 위한 history 업데이트
+                    history.setStatus(
+                            history.getRetryCount() >= retryMaxCount ?
+                                    TransactionStatus.MAX_RETRY_EXCEEDED.name() :
+                                    TransactionStatus.FAILED.name()
+                    );
+                    history.setErrorMessage(error.getMessage());
+                    history.setRetryCount(history.getRetryCount() + 1);
+                    history.setLastRetryTime(LocalDateTime.now());
+
+                    return historyRepository.save(history)
+                            .then(Mono.error(error)); // 원본 에러를 전파하여 상위에서 처리하도록 함
+                });
     }
 
     private PointRequest convertToPointRequest(PointHistory history) {
@@ -62,25 +80,5 @@ public class RetryScheduler {
                 .partnerType(history.getPartnerType())
                 .amount(history.getAmount())
                 .build();
-    }
-
-    private Mono<PointHistory> updateHistory(PointHistory history, PointResponse response) {
-        history.setStatus(TransactionStatus.COMPLETED.name());
-        history.setPoints(response.getPoints());
-        history.setLastRetryTime(LocalDateTime.now());
-        return historyRepository.save(history);
-    }
-
-    private Mono<PointHistory> handleRetryError(PointHistory history, Throwable error) {
-        log.error("Retry failed for history id={}", history.getId(), error);
-        history.setStatus(
-                history.getRetryCount() >= 3 ?
-                        TransactionStatus.MAX_RETRY_EXCEEDED.name() :
-                        TransactionStatus.FAILED.name()
-        );
-        history.setErrorMessage(error.getMessage());
-        history.setRetryCount(history.getRetryCount() + 1);
-        history.setLastRetryTime(LocalDateTime.now());
-        return historyRepository.save(history);
     }
 }

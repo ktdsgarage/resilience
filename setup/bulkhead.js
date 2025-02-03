@@ -7,7 +7,7 @@ export let options = {
         bulkhead_test: {
             executor: 'constant-vus',
             vus: 200,
-            duration: '30s',
+            duration: '60s',
             tags: { test_type: 'bulkhead' },
         }
     }
