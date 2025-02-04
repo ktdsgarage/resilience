@@ -11,10 +11,6 @@ point:
     interval: ${RETRY_INTERVAL:30000}  # 30초마다 재시도
     max-count: ${RETRY_MAX_COUNT:3}    # 최대 재시도 횟수
 
-services:
-  point:
-    url: ${POINT_SERVICE_URL:http://point}
-
 springdoc:
   swagger-ui:
     path: /swagger-ui.html

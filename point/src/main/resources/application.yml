@@ -12,7 +12,7 @@ spring:
   sql:
     init:
       mode: always
-      schema-locations: classpath:schema.sql
+      schema-locations: classpath:schema.sql  #테이블 생성
 
 server:
   port: ${SERVER_PORT:8080}

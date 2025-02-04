@@ -29,9 +29,17 @@ public class PointException extends RuntimeException {
         }
     }
 
-    public static class EventPublishException extends PointException {
+    public static class EventPublishException extends RuntimeException {
+        public EventPublishException(String message) {
+            super(message);
+        }
+
+        public EventPublishException(String message, Throwable cause) {
+            super(message, cause);
+        }
+
         public EventPublishException(Throwable cause) {
-            super("Failed to publish event", cause);
+            super(cause);
         }
     }
 

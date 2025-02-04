@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: async
+  namespace: dg0100-resilience-ns
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: async
+  template:
+    metadata:
+      labels:
+        app: async
+    spec:
+      containers:
+      - name: async
+        image: dg0100cr.azurecr.io/membership/async:v1
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+        envFrom:
+        - configMapRef:
+            name: async
+        - secretRef:
+            name: mongodb-async
+        resources:
+          requests:
+            cpu: 256m
+            memory: 256Mi
+          limits:
+            cpu: 512m
+            memory: 512Mi

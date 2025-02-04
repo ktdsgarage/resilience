@@ -79,7 +79,7 @@ setup_environment() {
 	# Gateway Event Grid 환경변수
 	EVENTGRID_ENDPOINT=""
 	EVENTGRID_KEY=""
-	EVENTGRID_EVENT_TYPES="CircuitBreakerOpened RetryExhausted"
+	EVENTGRID_EVENT_TYPES="CircuitBreakerOpened CircuitBreakerError RetryExhausted"
 
 	# Event Grid
 	STORAGE_ACCOUNT="${USERID}storage"
@@ -103,6 +103,8 @@ clear_resources() {
 	kubectl delete pvc --all -n $NAMESPACE 2>/dev/null || true
 	kubectl delete cm --all -n $NAMESPACE 2>/dev/null || true
 	kubectl delete secret --all -n $NAMESPACE 2>/dev/null || true
+
+  kubectl delete svc point-mart point-convenience point-online --all -n $NAMESPACE 2>/dev/null || true
 }
 
 # 공통 리소스 설정
@@ -358,55 +360,45 @@ metadata:
   name: gateway
   namespace: ${NAMESPACE}
 data:
-  POINT_SERVICE_URL: "http://point"
 
-  # Bulkhead 설정
-  BULKHEAD_DEFAULT_MAX_CONCURRENT_CALLS: "50"       # 기본 최대 동시 요청 수
-  BULKHEAD_DEFAULT_MAX_WAIT_DURATION: "500"         # 기본 최대 대기 시간(ms)
+  # Rate Limiter
+  RATE_LIMIT_FOR_PERIOD: "50"
+  RATE_LIMIT_REFRESH_PERIOD: "1s"
+  RATE_LIMIT_TIMEOUT: "1s"
 
-  BULKHEAD_MART_MAX_CONCURRENT_CALLS: "100"         # MART 최대 동시 요청 수
-  BULKHEAD_MART_MAX_WAIT_DURATION: "500"            # MART 최대 대기 시간(ms)
+  RATE_LIMIT_MART_FOR_PERIOD: "50"
+  RATE_LIMIT_MART_REFRESH_PERIOD: "1s"
+  RATE_LIMIT_MART_TIMEOUT: "0"
 
-  BULKHEAD_CONVENIENCE_MAX_CONCURRENT_CALLS: "200"   # CONVENIENCE 최대 동시 요청 수
-  BULKHEAD_CONVENIENCE_MAX_WAIT_DURATION: "300"      # CONVENIENCE 최대 대기 시간(ms)
+  RATE_LIMIT_CONVENIENCE_FOR_PERIOD: "100"
+  RATE_LIMIT_CONVENIENCE_REFRESH_PERIOD: "1s"
+  RATE_LIMIT_CONVENIENCE_TIMEOUT: "0"
 
-  BULKHEAD_ONLINE_MAX_CONCURRENT_CALLS: "50"        # ONLINE 최대 동시 요청 수
-  BULKHEAD_ONLINE_MAX_WAIT_DURATION: "1000"         # ONLINE 최대 대기 시간(ms)
+  RATE_LIMIT_ONLINE_FOR_PERIOD: "30"
+  RATE_LIMIT_ONLINE_REFRESH_PERIOD: "1s"
+  RATE_LIMIT_ONLINE_TIMEOUT: "0"
 
   # Retry 설정
-  RETRY_COUNT: "3"
-  RETRY_STATUSES: "BAD_GATEWAY,SERVICE_UNAVAILABLE"
-  RETRY_METHODS: "GET,POST"
-  RETRY_FIRST_BACKOFF: "5000"
-  RETRY_MAX_BACKOFF: "20000"
-  RETRY_FACTOR: "2"
-  RETRY_BASED_ON_PREVIOUS: "false"
+  RETRY_MAX_ATTEMPTS: "3"
+  RETRY_WAIT_DURATION: "1s"
+  RETRY_MART_MAX_ATTEMPTS: "5"
+  RETRY_MART_WAIT_DURATION: "500ms"
+  RETRY_CONVENIENCE_MAX_ATTEMPTS: "4"
+  RETRY_CONVENIENCE_WAIT_DURATION: "750ms"
+  RETRY_ONLINE_MAX_ATTEMPTS: "3"
+  RETRY_ONLINE_WAIT_DURATION: "1s"
 
-  # Rate Limiter - MART
-  RATE_MART_LIMIT: "100"
-  RATE_MART_REFRESH: "1"
-  RATE_MART_TIMEOUT: "5"
-
-  # Rate Limiter - CONVENIENCE
-  RATE_CONVENIENCE_LIMIT: "200"
-  RATE_CONVENIENCE_REFRESH: "1"
-  RATE_CONVENIENCE_TIMEOUT: "2"
-
-  # Rate Limiter - ONLINE
-  RATE_ONLINE_LIMIT: "50"
-  RATE_ONLINE_REFRESH: "1"
-  RATE_ONLINE_TIMEOUT: "10"
-
-  # Circuit Breaker
+  # Circuit Breaker 설정
   CB_SLIDING_WINDOW_SIZE: "10"
   CB_FAILURE_RATE_THRESHOLD: "30"
   CB_WAIT_DURATION_IN_OPEN: "5000"
   CB_PERMITTED_CALLS_IN_HALF_OPEN: "5"
-  CB_SLOW_CALL_DURATION_THRESHOLD: "100"
+  CB_SLOW_CALL_DURATION_THRESHOLD: "1000"
   CB_SLOW_CALL_RATE_THRESHOLD: "30"
 
   # TIMEOUT
-  RESPONSE_TIMEOUT: "200"
+  CONNECTION_TIMEOUT: "30000"
+  RESPONSE_TIMEOUT: "30000"
 EOF
 
 	# async ConfigMap 생성
@@ -419,6 +411,9 @@ metadata:
 data:
   APP_NAME: "async-service"
   SERVER_PORT: "$port"
+  RETRY_INTERVAL: "30000"
+  RETRY_MAX_COUNT: "3"
+
   MONGODB_HOST: "$MONGODB_HOST"
   MONGODB_PORT: "$MONGODB_PORT"
   MONGODB_DATABASE: "$MONGODB_DATABASE"
@@ -457,12 +452,10 @@ EOF
 
 }
 
-# 서비스 빌드 및 배포
-deploy_service() {
+# 이미지 빌드/업르도
+create_image() {
 	local service_name=$1
-	local port=$2
-	local fixed_ip=$3
-	log "${service_name} 서비스 배포 시작..."
+	log "${service_name} 이미지 빌드/업로드..."
 
 	# JAR 빌드 (멀티프로젝트 빌드)
 	./gradlew ${service_name}:clean ${service_name}:build -x test
@@ -484,27 +477,50 @@ EOF
 		.
 	cd ..
 	check_error "${service_name} 이미지 빌드 실패"
+}
 
-	# mount할 secret name 계산
+# 서비스 배포
+deploy_service() {
+	local service_name=$1
+  local replicas=$2
+	local port=$3
+	local fixed_ip=$4
+  read -r req_cpu req_mem limit_cpu limit_mem <<< "$5"
+
+	log "${service_name} 서비스 배포 시작..."
+
+	# configmap name, secret name, image name, service type 계산
+  local cm_name=""
 	local secret_name=""
+  local image_name=""
+  local service_type=""
 
-	if [ "$service_name" = "gateway" ]; then
-		secret_name="gateway"
-	elif [ "$service_name" = "point" ]; then
-		secret_name="${POSTGRES_SECRET_NAME}"
-	elif [ "$service_name" = "async" ]; then
-		secret_name="${MONGO_SECRET_NAME}"
-	fi
+  if [[ "$service_name" =~ ^gateway.* ]]; then
+      cm_name="gateway"
+      secret_name="gateway"
+      image_name="gateway"
+      service_type="type: LoadBalancer"
+  elif [[ "$service_name" =~ ^point.* ]]; then
+      cm_name="point"
+      secret_name="${POSTGRES_SECRET_NAME}"
+      image_name="point"
+      service_type="type: LoadBalancer"
+  elif [[ "$service_name" =~ ^async.* ]]; then
+      cm_name="async"
+      secret_name="${MONGO_SECRET_NAME}" 
+      image_name="async"
+      service_type="type: LoadBalancer"
+  fi
 
-    # Deployment YAML 생성
-    cat << EOF | kubectl apply -f -
+  # Deployment YAML 생성
+  cat << EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ${service_name}
   namespace: $NAMESPACE
 spec:
-  replicas: 1
+  replicas: $replicas
   selector:
     matchLabels:
       app: $service_name
@@ -515,15 +531,22 @@ spec:
     spec:
       containers:
       - name: $service_name
-        image: ${ACR_NAME}.azurecr.io/membership/${service_name}:v1
+        image: ${ACR_NAME}.azurecr.io/membership/${image_name}:v1
         imagePullPolicy: Always
         ports:
         - containerPort: $port
         envFrom:
         - configMapRef:
-            name: ${service_name}
+            name: ${cm_name}
         - secretRef:
             name: ${secret_name}
+        resources:
+          requests:
+            cpu: ${req_cpu}
+            memory: ${req_mem}
+          limits:
+            cpu: ${limit_cpu}
+            memory: ${limit_mem}
 EOF
 
 	# 서비스 생성
@@ -545,7 +568,7 @@ spec:
   - protocol: TCP
     port: 80
     targetPort: $port
-  type: LoadBalancer
+  $service_type
   $loadbalancer_ip
 EOF
 
@@ -597,12 +620,10 @@ print_results() {
     log "=== 배포 결과 ==="
     kubectl get all -n $NAMESPACE
 
-    log "=== 서비스 URL ==="
-    for svc in async gateway point; do
-        local ip=$(kubectl get svc ${svc} -n $NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-        log "${svc} Service URL: http://${ip}"
-    done
-
+    log "=== Gateway 서비스 URL ==="
+    local ip=$(kubectl get svc gateway -n $NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+    log "Gateway Service URL: http://${ip}"
+    
     log "=== Event Grid 정보 ==="
     log "Gateway Topic: $GATEWAY_TOPIC"
     log "Event Grid Subscription Endpoint: ${SUB_ENDPOINT}"
@@ -645,11 +666,47 @@ main() {
   kubectl wait --for=condition=ready pod -l app=postgresql -n $NAMESPACE --timeout=300s
   log "데이터베이스 준비 완료"
 
-  # 서비스 배포
+  # 이미지 빌드/배포
+  create_image "async"
+  create_image "gateway"
+  create_image "point"
+
+  # ConfigMap, Secret 생성 
   deploy_cm_secret "8080"
-  deploy_service "async" "8080" "$ASYNC_PUBIP"
-  deploy_service "gateway" "8080" ""
-  deploy_service "point" "8080" ""
+
+  # 서비스 배포
+  declare -a resources=(
+      "256m"    # req.cpu
+      "256Mi"   # req.mem
+      "512m"    # limit.cpu
+      "512Mi"   # limit.mem
+  )
+  deploy_service "gateway" "1" "8080" "" "${resources[*]}"
+  deploy_service "async" "1" "8080" "$ASYNC_PUBIP" "${resources[*]}"
+
+  declare -a resources=(
+      "256m"    # req.cpu
+      "256Mi"   # req.mem
+      "512m"    # limit.cpu
+      "512Mi"   # limit.mem
+  )
+  deploy_service "point-mart" "1" "8080" "" "${resources[*]}"
+  
+  declare -a resources=(
+      "512m"    # req.cpu
+      "512Mi"   # req.mem
+      "1024m"    # limit.cpu
+      "1024Mi"   # limit.mem
+  )  
+  deploy_service "point-convenience" "1" "8080" "" "${resources[*]}"
+
+  declare -a resources=(
+      "100m"    # req.cpu
+      "100Mi"   # req.mem
+      "300m"    # limit.cpu
+      "300Mi"   # limit.mem
+  )  
+  deploy_service "point-online" "1" "8080" "" "${resources[*]}"
 
   # Event Grid Subscriber 설정
   setup_event_grid_subscriber

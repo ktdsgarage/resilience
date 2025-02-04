@@ -1,43 +1,132 @@
+# 포트 설정
 server:
   port: ${SERVER_PORT:8080}
 
+# Route 설정
 spring:
   cloud:
     gateway:
+      httpclient:
+        connect-timeout: ${CONNECTION_TIMEOUT:2000}   # 연결 타임아웃
+        response-timeout: ${RESPONSE_TIMEOUT:2000}    # 응답 타임아웃
+
+      # 모든 라우트에 적용할 기본 필터 설정
+      default-filters:
+        - name: RateLimiting
+        - name: CustomRetry
+          args:
+            name: point-service
+            methods: POST
+        - name: CircuitBreaker
+          args:
+            name: point-service
       routes:
-        - id: point_service
-          uri: http://point
+        # MART 파트너 라우트
+        - id: mart_point_service
+          uri: http://point-mart
           predicates:
-            - Path=/api/points/**
+            - Path=/api/partner/mart/points/**
           filters:
-            - name: CircuitBreakerFilter
-              args:
-                circuitBreakerName: point-service
-            - name: RequestTimeout
-              args:
-                timeout: ${RESPONSE_TIMEOUT:2000}
-            - name: ReactiveResilience4JCircuitBreaker
-              args:
-                name: point-service
+            - RewritePath=/api/partner/mart/points/(?<segment>.*), /api/points/${segment}
+            - AddRequestHeader=X-Partner-Type,MART
+
+        # CONVENIENCE 파트너 라우트
+        - id: convenience_point_service
+          uri: http://point-convenience
+          predicates:
+            - Path=/api/partner/convenience/points/**
+          filters:
+            - RewritePath=/api/partner/convenience/points/(?<segment>.*), /api/points/${segment}
+            - AddRequestHeader=X-Partner-Type,CONVENIENCE
+
+        # ONLINE 파트너 라우트
+        - id: online_point_service
+          uri: http://point-online
+          predicates:
+            - Path=/api/partner/online/points/**
+          filters:
+            - RewritePath=/api/partner/online/points/(?<segment>.*), /api/points/${segment}
+            - AddRequestHeader=X-Partner-Type,ONLINE
+
+# Resilience 설정
 resilience4j:
+  ratelimiter:
+    configs:
+      default:
+        limitForPeriod: ${RATE_LIMIT_FOR_PERIOD:50}           # 주어진 기간(limitRefreshPeriod)동안 허용되는 요청 수 (기본값: 50)
+        limitRefreshPeriod: ${RATE_LIMIT_REFRESH_PERIOD:1s}   # 제한 횟수 초기화 주기 (기본값: 1초)
+        timeoutDuration: ${RATE_LIMIT_TIMEOUT:5s}             # 요청이 제한될 때 timeout 기간 (기본값: 5초)
+    instances:
+      point-service:
+        baseConfig: default  # point-service는 기본 설정 사용
+      mart:
+        limitForPeriod: ${RATE_LIMIT_MART_FOR_PERIOD:100}          # mart 서비스의 주어진 기간 동안 허용되는 요청 수 (기본값: 100)
+        limitRefreshPeriod: ${RATE_LIMIT_MART_REFRESH_PERIOD:1s}   # mart 서비스의 제한 횟수 초기화 주기 (기본값: 1초)
+        timeoutDuration: ${RATE_LIMIT_MART_TIMEOUT:3s}             # mart 서비스의 요청이 제한될 때 timeout 기간 (기본값: 3초)
+      convenience:
+        limitForPeriod: ${RATE_LIMIT_CONVENIENCE_FOR_PERIOD:200}          # convenience 서비스의 주어진 기간 동안 허용되는 요청 수 (기본값: 200)
+        limitRefreshPeriod: ${RATE_LIMIT_CONVENIENCE_REFRESH_PERIOD:1s}   # convenience 서비스의 제한 횟수 초기화 주기 (기본값: 1초)
+        timeoutDuration: ${RATE_LIMIT_CONVENIENCE_TIMEOUT:2s}             # convenience 서비스의 요청이 제한될 때 timeout 기간 (기본값: 2초)
+      online:
+        limitForPeriod: ${RATE_LIMIT_ONLINE_FOR_PERIOD:50}          # online 서비스의 주어진 기간 동안 허용되는 요청 수 (기본값: 50)
+        limitRefreshPeriod: ${RATE_LIMIT_ONLINE_REFRESH_PERIOD:1s}   # online 서비스의 제한 횟수 초기화 주기 (기본값: 1초)
+        timeoutDuration: ${RATE_LIMIT_ONLINE_TIMEOUT:5s}             # online 서비스의 요청이 제한될 때 timeout 기간 (기본값: 5초)
+
+  retry:
+    configs:
+      default:
+        maxAttempts: ${RETRY_MAX_ATTEMPTS:3}                 # 최대 재시도 횟수 (기본값: 3)
+        waitDuration: ${RETRY_WAIT_DURATION:1s}              # 재시도 간격 (기본값: 1초)
+        enableExponentialBackoff: true                       # 지수 백오프 사용 여부
+        exponentialBackoffMultiplier: 2                      # 지수 백오프 승수 (waitDuration^^2로 재시도 주기 증가)
+        retryExceptions:                                     # 재시도를 트리거하는 예외 목록
+          - org.springframework.web.client.HttpServerErrorException
+          - java.io.IOException
+          - java.net.ConnectException
+          - org.springframework.web.reactive.function.client.WebClientResponseException
+        ignoreExceptions: # 재시도하지 않을 예외
+          - org.springframework.web.client.HttpClientErrorException  # 4xx 에러는 재시도 안함
+          - java.lang.IllegalArgumentException  # 잘못된 요청이면 재시도 안함
+          - io.github.resilience4j.ratelimiter.RequestNotPermitted  #Ratelimit 초과
+          - org.springframework.web.client.HttpServerErrorException$ServiceUnavailable  #C/B Open시
+
+    instances:
+      point-service:
+        baseConfig: default  # point-service는 기본 설정 사용
+      mart:
+        maxAttempts: ${RETRY_MART_MAX_ATTEMPTS:5}            # mart 서비스의 최대 재시도 횟수 (기본값: 5)
+        waitDuration: ${RETRY_MART_WAIT_DURATION:500ms}      # mart 서비스의 재시도 간격 (기본값: 500ms)
+      convenience:
+        maxAttempts: ${RETRY_CONVENIENCE_MAX_ATTEMPTS:4}            # convenience 서비스의 최대 재시도 횟수 (기본값: 4)
+        waitDuration: ${RETRY_CONVENIENCE_WAIT_DURATION:750ms}      # convenience 서비스의 재시도 간격 (기본값: 750ms)
+      online:
+        maxAttempts: ${RETRY_ONLINE_MAX_ATTEMPTS:3}          # online 서비스의 최대 재시도 횟수 (기본값: 3)
+        waitDuration: ${RETRY_ONLINE_WAIT_DURATION:1s}       # online 서비스의 재시도 간격 (기본값: 1초)
+
+  # 실패 판단 기준: httpclient.response-timeout 초과, recordExceptions에 지정한 예외 발생 , slowCall 옵션
+  # 'slowCallDurationThreshold'은 'httpclient.response-timeout'보다 작아야 함
+  # 응답이 오는 경우는 slowCall 옵션에 따라 C/B 오픈이 결정되고, 응답이 아예 없으면 'httpclient.response-timeout'에 C/B 오픈 결정됨
   circuitbreaker:
     configs:
       default:
-        slidingWindowSize: ${CB_SLIDING_WINDOW_SIZE:10}
-        failureRateThreshold: ${CB_FAILURE_RATE_THRESHOLD:50}
-        waitDurationInOpenState: ${CB_WAIT_DURATION_IN_OPEN:30000}
-        permittedNumberOfCallsInHalfOpenState: ${CB_PERMITTED_CALLS_IN_HALF_OPEN:5}
-        slowCallDurationThreshold: ${CB_SLOW_CALL_DURATION_THRESHOLD:1000}
-        slowCallRateThreshold: ${CB_SLOW_CALL_RATE_THRESHOLD:50}
-        ignoreExceptions:
-          - org.springframework.web.server.ResponseStatusException
-    instances:
-      point-service:
-        baseConfig: default
-        recordExceptions:
+        slidingWindowSize: ${CB_SLIDING_WINDOW_SIZE:10}                  # 통계를 수집할 요청 수 (기본값: 10)
+        failureRateThreshold: ${CB_FAILURE_RATE_THRESHOLD:50}            # 실패 비율 임계값 (%), 이 값 이상이면 Circuit이 Open (기본값: 50)
+        waitDurationInOpenState: ${CB_WAIT_DURATION_IN_OPEN:30000}       # Circuit이 Open 상태를 유지하는 시간 (ms) (기본값: 30초)
+        permittedNumberOfCallsInHalfOpenState: ${CB_PERMITTED_CALLS_IN_HALF_OPEN:5}  # Half Open 상태에서 허용되는 호출 수 (기본값: 5)
+        slowCallDurationThreshold: ${CB_SLOW_CALL_DURATION_THRESHOLD:1000}  # Slow call로 간주할 임계값 (ms) (기본값: 1초)
+        slowCallRateThreshold: ${CB_SLOW_CALL_RATE_THRESHOLD:50}          # Slow call 비율 임계값 (%), 이 값 이상이면 Circuit이 Open (기본값: 50)
+        recordExceptions:    # Circuit Breaker 상태 변경을 트리거할 예외 목록
           - java.util.concurrent.TimeoutException
           - java.io.IOException
           - org.springframework.web.reactive.function.client.WebClientRequestException
+        ignoreExceptions:                                                # Circuit Breaker에서 무시할 예외 목록
+          - org.springframework.web.server.ResponseStatusException
+          - io.github.resilience4j.ratelimiter.RequestNotPermitted  #Ratelimit 초과
+    instances:
+      point-service:
+        baseConfig: default  # point-service는 기본 설정 사용
+
+# Event Grid
 azure:
   eventgrid:
     endpoint: ${EVENTGRID_ENDPOINT}
@@ -56,3 +145,8 @@ springdoc:
   show-actuator: true
   default-consumes-media-type: application/json
   default-produces-media-type: application/json
+
+logging:
+  level:
+    root: INFO
+    com.telecom.membership.gateway.filter: DEBUG  # 상세 로그 확인

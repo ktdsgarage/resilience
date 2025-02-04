@@ -16,17 +16,17 @@ public class PointProcessorImpl implements PointProcessor {
 
     private final WebClient webClient;
 
-    @Value("${services.point.url}")
-    private String pointServiceUrl;
-
     public PointProcessorImpl(WebClient webClient) {
         this.webClient = webClient;
     }
 
     @Override
     public Mono<PointResponse> processPoints(PointRequest request) {
+        String partnerType = request.getPartnerType().toLowerCase();
+        String url = "http://point-"+partnerType+"/points/accumulate";
+
         return webClient.post()
-                .uri(pointServiceUrl + "/api/points/accumulate")
+                .uri(url)
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(request)
                 .retrieve()
