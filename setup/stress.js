@@ -10,8 +10,8 @@ const cbCounter = new Counter('circuit_breaker_count');
 const cbRate = new Rate('circuit_breaker_percentage');
 
 /*
-- RPU(Request Per User)=1/thinkTime
-- RPS(Request Per Seconds)=VU(Virtual User) * RPU(Request Per User)
+- 초당 사용자별 요청수=1초/thinkTime
+- RPS(Request Per Seconds)=VU(Virtual User) * 초당 사용자별 요청수
 아래 설정의 RPS
 - 00초 ~ 20초: 100회 (10명 * 10회)
 - 21초 ~ 40초: 200회 (20명 * 10회)
