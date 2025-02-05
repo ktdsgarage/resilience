@@ -36,7 +36,7 @@ public class EventGridWebhookController {
 
     /**
      * Event Grid로부터 수신된 이벤트를 처리합니다.
-     * Mono.defer를 사용하여 구독 시점에 로직이 실행되도록 지연시킵니다.
+     * Mono.defer를 사용하여 구독 시점(API요청이 오는 시점에 WebFlux 내부 객체가 구독)에 로직이 실행되도록 지연시킵니다.
      *
      * @param aegEventType Event Grid 이벤트 타입 헤더
      * @param requestBody 이벤트 데이터
