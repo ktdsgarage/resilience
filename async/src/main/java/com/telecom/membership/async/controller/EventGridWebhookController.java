@@ -1,4 +1,3 @@
-// File: membership/async/src/main/java/com/telecom/membership/async/controller/EventGridWebhookController.java
 package com.telecom.membership.async.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -18,6 +17,13 @@ import reactor.core.publisher.Mono;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
+/**
+ * Event Grid로부터 수신된 이벤트를 처리하는 컨트롤러
+ * WebFlux를 사용하여 비동기-논블로킹 방식으로 요청을 처리합니다.
+ *
+ * @author point-team
+ * @version 1.0
+ */
 @Slf4j
 @RestController
 @RequestMapping("/api/events")
@@ -28,8 +34,14 @@ public class EventGridWebhookController {
     private final ObjectMapper objectMapper;
     private final PointHistoryManager historyManager;
 
-    @PostMapping("/point")
-    @Operation(summary = "이벤트 수신", description = "Event Grid에서 전송된 포인트 관련 이벤트를 처리합니다.")
+    /**
+     * Event Grid로부터 수신된 이벤트를 처리합니다.
+     * Mono.defer를 사용하여 구독 시점에 로직이 실행되도록 지연시킵니다.
+     *
+     * @param aegEventType Event Grid 이벤트 타입 헤더
+     * @param requestBody 이벤트 데이터
+     * @return 처리 결과 응답
+     */
     public Mono<ResponseEntity<?>> handleEvent(
             @RequestHeader(value = "aeg-event-type", required = false) String aegEventType,
             @RequestBody String requestBody) {
@@ -63,13 +75,34 @@ public class EventGridWebhookController {
                         .amount(new BigDecimal(data.get("amount").asText()))
                         .build();
 
-                // point 적립 처리
+                /**
+                 * 포인트 적립을 비동기-논블로킹 방식으로 처리합니다.
+                 * 요청 처리부터 응답 생성, 에러 처리까지의 전체 흐름을 리액티브 스트림으로 구성합니다.
+                 */
                 return historyManager.processPointAccumulation(pointRequest)
+                        // map: 스트림의 각 요소를 변환하는 연산자-리턴 객체 형식에 맞게 변환하여 리턴
+                        // - 입력: PointResponse(processPointAccumulation의 결과 객체)
+                        // - 출력: ResponseEntity<ApiResponse<PointResponse>>
+                        // - 특징: 동기적 변환에 사용되며, 새로운 비동기 작업을 만들지 않음
                         .map(response -> ResponseEntity.ok(ApiResponse.success(response)))
+
+                        // onErrorResume: 에러 발생 시 대체 스트림을 제공하는 연산자
+                        // - 입력: 발생한 에러(Throwable)
+                        // - 출력: 대체할 새로운 Mono 스트림
+                        // - 특징: try-catch와 유사하나, 리액티브 방식으로 에러를 처리
                         .onErrorResume(error -> {
-                            log.error("Failed to process point accumulation for event type: {}", eventType, error);
+                            // 에러 로깅
+                            log.error("Failed to process point accumulation for event type: {}",
+                                    eventType, error);
+
+                            // Mono.just: 단일 값을 포함하는 새로운 Mono를 생성하는 팩토리 메서드
+                            // - 입력: error 객체
+                            // - 출력: 해당 값을 포함하는 Mono
+                            // - 특징: 이미 존재하는 값을 리액티브 스트림으로 변환
                             return Mono.just(ResponseEntity.internalServerError()
-                                    .body(ApiResponse.error("이벤트 처리 중 오류가 발생했습니다: " + error.getMessage())));
+                                    .body(ApiResponse.error(
+                                            "이벤트 처리 중 오류가 발생했습니다: " + error.getMessage()
+                                    )));
                         });
 
             } catch (Exception e) {
@@ -80,6 +113,11 @@ public class EventGridWebhookController {
         });
     }
 
+    /**
+     * 서비스 상태를 확인합니다.
+     *
+     * @return 서비스 상태 정보
+     */
     @GetMapping("/health")
     @Operation(summary = "헬스 체크", description = "서비스의 상태를 확인합니다.")
     public Mono<ResponseEntity<ApiResponse<String>>> healthCheck() {
