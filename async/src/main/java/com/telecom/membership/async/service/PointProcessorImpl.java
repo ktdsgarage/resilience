@@ -46,7 +46,7 @@ public class PointProcessorImpl implements PointProcessor {
     @Override
     public Mono<PointResponse> processPoints(PointRequest request) {
         String partnerType = request.getPartnerType().toLowerCase();
-        String url = "http://point-" + partnerType + "/points/accumulate";
+        String url = "http://point-" + partnerType + "/api/points/accumulate";
 
         return webClient.post()  // HTTP POST 요청 구성
                 .uri(url)        // 대상 URL 설정

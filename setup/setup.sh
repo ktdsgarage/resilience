@@ -85,9 +85,9 @@ setup_environment() {
 	STORAGE_ACCOUNT="${USERID}storage"
 	DEAD_LETTER="${USERID}deadletter"
 
-	# Event Grid IPs
+	# Event Grid IPs(PROXY_IP:nginx server, ASYNC_PUBIP:async서비스 L/B IP)
 	PROXY_IP="20.41.83.72"
-	ASYNC_PUBIP="4.230.153.85"
+	ASYNC_PUBIP="20.249.112.137"
 	SUB_ENDPOINT="https://${USERID}.resilience.${PROXY_IP}.nip.io/api/events/point"
 
 	LOG_FILE="deployment_${NAME}.log"
@@ -623,7 +623,7 @@ print_results() {
     log "=== Gateway 서비스 URL ==="
     local ip=$(kubectl get svc gateway -n $NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
     log "Gateway Service URL: http://${ip}"
-    
+
     log "=== Event Grid 정보 ==="
     log "Gateway Topic: $GATEWAY_TOPIC"
     log "Event Grid Subscription Endpoint: ${SUB_ENDPOINT}"

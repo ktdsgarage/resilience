@@ -35,7 +35,7 @@ subprojects {
         implementation 'org.springdoc:springdoc-openapi-starter-webflux-ui:2.1.0'
 
         // gateway와 async 프로젝트에만 Resilience4j 의존성 추가
-        if (project.name in ['gateway']) {
+        if (project.name in ['gateway', 'async']) {
             //Resilience4J
             implementation "io.github.resilience4j:resilience4j-circuitbreaker:${resilience4jVersion}"
             implementation "io.github.resilience4j:resilience4j-ratelimiter:${resilience4jVersion}"

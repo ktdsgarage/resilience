@@ -42,6 +42,7 @@ public class EventGridWebhookController {
      * @param requestBody 이벤트 데이터
      * @return 처리 결과 응답
      */
+    @PostMapping("/point")
     public Mono<ResponseEntity<?>> handleEvent(
             @RequestHeader(value = "aeg-event-type", required = false) String aegEventType,
             @RequestBody String requestBody) {
