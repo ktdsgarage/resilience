@@ -1,6 +1,6 @@
 #!/bin/bash
 
-SHARED_PREFIX="dg0100"  #실습 시 tiu-dgga로 변경 
+RESOURCE_GROUP="ictcoe-edu" #az group list -o table
 
 # ===========================================
 # 신뢰성 패턴 실습환경 정리 스크립트
@@ -32,7 +32,6 @@ fi
 # 환경 변수 설정
 NAME="${1}-resilience"
 NAMESPACE="${NAME}-ns"
-RESOURCE_GROUP="${SHARED_PREFIX}-rg"
 GATEWAY_TOPIC="$NAME-gateway-topic"
 
 # 리소스 삭제 전 확인
